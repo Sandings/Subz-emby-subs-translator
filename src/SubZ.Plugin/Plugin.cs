@@ -1,0 +1,266 @@
+using System;
+using System.IO;
+using System.Reflection;
+using MediaBrowser.Common;
+using MediaBrowser.Common.Plugins;
+using MediaBrowser.Controller.Plugins;
+using MediaBrowser.Model.Drawing;
+using MediaBrowser.Model.Logging;
+using SubZ.Plugin.Api;
+using SubZ.Plugin.Configuration;
+using SubZ.Plugin.Services;
+
+namespace SubZ.Plugin;
+
+public sealed class Plugin : BasePluginSimpleUI<PluginOptions>, IHasThumbImage
+{
+    public static Plugin? Instance { get; private set; }
+    private static ILogger? _logger;
+
+    public Plugin(IApplicationHost applicationHost)
+        : base(applicationHost)
+    {
+        Instance = this;
+        TryInitLogger(applicationHost);
+        var options = CurrentOptions;
+        ConfigureRuntimeFileLogger(options);
+        ValidateMediaToolPaths(options);
+    }
+
+    public override string Name => "SubZ";
+
+    public override string Description => "Translate official subtitles into selected language via LLM API.";
+
+    public override Guid Id => Guid.Parse("e14380f8-5dd0-47be-84e3-b3700a42bf85");
+
+    public PluginOptions CurrentOptions => GetOptions();
+
+    public ImageFormat ThumbImageFormat => ImageFormat.Png;
+
+    public Stream GetThumbImage()
+    {
+        var assembly = typeof(Plugin).GetTypeInfo().Assembly;
+        var stream = assembly.GetManifestResourceStream("SubZ.Assets.Logo.subz-logo-thumb.png");
+        if (stream == null)
+        {
+            throw new InvalidOperationException("Embedded logo resource not found: SubZ.Assets.Logo.subz-logo-thumb.png");
+        }
+
+        return stream;
+    }
+
+    public static void LogInfo(string message, params object[] args)
+    {
+        _logger?.Info(message, args);
+    }
+
+    public static void LogWarn(string message, params object[] args)
+    {
+        _logger?.Warn(message, args);
+    }
+
+    public static void LogErrorException(string message, Exception ex, params object[] args)
+    {
+        _logger?.ErrorException(message, ex, args);
+    }
+
+    protected override PluginOptions OnBeforeShowUI(PluginOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(options.StatusPageUrl))
+        {
+            options.StatusPageUrl = "http://localhost:18123/subz-status.html";
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.TargetLanguage))
+        {
+            options.TargetLanguageOption = LanguageCodeMap.FromCode(options.TargetLanguage);
+        }
+        else
+        {
+            options.TargetLanguageOption = SupportedLanguageOption.ZhHans;
+            options.TargetLanguage = LanguageCodeMap.ToCode(options.TargetLanguageOption);
+        }
+
+        if (string.IsNullOrWhiteSpace(options.OutputFormat))
+        {
+            options.OutputFormat = "srt";
+        }
+
+        options.OutputFormatOption = OutputFormatMap.FromCode(options.OutputFormat);
+
+        if (string.IsNullOrWhiteSpace(options.ApiProvider))
+        {
+            options.ApiProvider = "deepseek";
+        }
+
+        if (string.IsNullOrWhiteSpace(options.ApiBaseUrl))
+        {
+            options.ApiBaseUrl = "https://api.deepseek.com";
+        }
+
+        if (string.IsNullOrWhiteSpace(options.Model))
+        {
+            options.Model = "deepseek-v4-flash";
+        }
+
+        if (string.IsNullOrWhiteSpace(options.PreferredSourceLanguage))
+        {
+            options.PreferredSourceLanguage = "en";
+        }
+
+        if (string.IsNullOrWhiteSpace(options.FfmpegPath))
+        {
+            options.FfmpegPath = "/bin/ffmpeg";
+        }
+
+        if (string.IsNullOrWhiteSpace(options.FfprobePath))
+        {
+            options.FfprobePath = "/bin/ffprobe";
+        }
+
+        if (options.LogFileMaxSizeMb <= 0)
+        {
+            options.LogFileMaxSizeMb = 10;
+        }
+
+        if (options.LogRetentionDays <= 0)
+        {
+            options.LogRetentionDays = 7;
+        }
+
+        return options;
+    }
+
+    protected override bool OnOptionsSaving(PluginOptions options)
+    {
+        options.TargetLanguage = options.GetTargetLanguageCode();
+        options.OutputFormat = OutputFormatMap.ToCode(options.OutputFormatOption);
+
+        if (options.Profiles == null || options.Profiles.Count == 0)
+        {
+            options.Profiles = new System.Collections.Generic.List<TranslationApiProfile>
+            {
+                new TranslationApiProfile()
+            };
+        }
+
+        var profile = options.Profiles[0];
+        profile.Name = "default";
+        profile.Provider = string.IsNullOrWhiteSpace(options.ApiProvider) ? "deepseek" : options.ApiProvider;
+        profile.BaseUrl = string.IsNullOrWhiteSpace(options.ApiBaseUrl) ? "https://api.deepseek.com" : options.ApiBaseUrl;
+        profile.ApiKey = options.ApiKey ?? string.Empty;
+        profile.Model = string.IsNullOrWhiteSpace(options.Model) ? "deepseek-v4-flash" : options.Model;
+        if (profile.Temperature <= 0 || profile.Temperature > 2)
+        {
+            profile.Temperature = 0.1;
+        }
+        profile.BatchSize = options.BatchSize <= 0 ? 120 : options.BatchSize;
+        options.PreferredSourceLanguage = string.IsNullOrWhiteSpace(options.PreferredSourceLanguage) ? "en" : options.PreferredSourceLanguage.Trim();
+        options.FfmpegPath = string.IsNullOrWhiteSpace(options.FfmpegPath) ? "/bin/ffmpeg" : options.FfmpegPath.Trim();
+        options.FfprobePath = string.IsNullOrWhiteSpace(options.FfprobePath) ? "/bin/ffprobe" : options.FfprobePath.Trim();
+
+        options.LogFileMaxSizeMb = options.LogFileMaxSizeMb <= 0 ? 10 : options.LogFileMaxSizeMb;
+        options.LogRetentionDays = options.LogRetentionDays <= 0 ? 7 : options.LogRetentionDays;
+
+        ConfigureRuntimeFileLogger(options);
+        ValidateMediaToolPaths(options);
+
+        if (options.ManualRunNow)
+        {
+            var targetFolder = (options.ManualRunTargetFolder ?? string.Empty).Trim();
+            var targetFile = (options.ManualRunTargetFile ?? string.Empty).Trim();
+
+            if (targetFolder.Length > 0 && targetFile.Length > 0)
+            {
+                throw new InvalidOperationException("Please specify either Manual Run Target Folder or Manual Run Target File, not both.");
+            }
+
+            if (targetFolder.Length == 0 && targetFile.Length == 0)
+            {
+                throw new InvalidOperationException("Please specify Manual Run Target Folder or Manual Run Target File before enabling Run Manual Translation Now.");
+            }
+
+            var request = new RunManualTranslation
+            {
+                TargetFolderPath = targetFolder.Length > 0 ? targetFolder : null,
+                TargetFilePath = targetFile.Length > 0 ? targetFile : null
+            };
+
+            var response = RunManualTranslationNow(request);
+            options.ManualRunNow = false;
+
+            if (!response.Accepted)
+            {
+                throw new InvalidOperationException(response.Message);
+            }
+        }
+
+        return base.OnOptionsSaving(options);
+    }
+
+    private static void TryInitLogger(IApplicationHost applicationHost)
+    {
+        try
+        {
+            var logManager = applicationHost.Resolve<ILogManager>();
+            _logger = logManager?.GetLogger("SubZ");
+        }
+        catch
+        {
+            _logger = null;
+        }
+    }
+
+    private void ConfigureRuntimeFileLogger(PluginOptions options)
+    {
+        try
+        {
+            var baseDir = DataFolderPath;
+            if (string.IsNullOrWhiteSpace(baseDir))
+            {
+                baseDir = Path.Combine(AppContext.BaseDirectory, "subz");
+            }
+
+            Directory.CreateDirectory(baseDir);
+            FileRuntimeLogger.Configure(baseDir, options.LogFileMaxSizeMb, options.LogRetentionDays);
+        }
+        catch (Exception ex)
+        {
+            LogWarn("Failed to configure runtime file logger: {0}", ex.Message);
+        }
+    }
+
+    private static ManualExecutionResponse RunManualTranslationNow(RunManualTranslation request)
+    {
+        var service = new ManualTranslationService();
+        return service.Post(request).ConfigureAwait(false).GetAwaiter().GetResult();
+    }
+
+    private static void ValidateMediaToolPaths(PluginOptions options)
+    {
+        ValidateToolPath("ffmpeg", options.FfmpegPath);
+        ValidateToolPath("ffprobe", options.FfprobePath);
+    }
+
+    private static void ValidateToolPath(string toolName, string? configuredPath)
+    {
+        var path = (configuredPath ?? string.Empty).Trim();
+        if (path.Length == 0)
+        {
+            var msg = $"{toolName} path is empty. Please configure a valid executable path.";
+            LogWarn(msg);
+            InMemoryTranslationJobDispatcher.AppendRuntimeLog("Warn", msg);
+            return;
+        }
+
+        if (!File.Exists(path))
+        {
+            var msg = $"{toolName} path not found: {path}";
+            LogWarn(msg);
+            InMemoryTranslationJobDispatcher.AppendRuntimeLog("Warn", msg);
+            return;
+        }
+
+        InMemoryTranslationJobDispatcher.AppendRuntimeLog("Info", $"{toolName} path OK: {path}");
+    }
+}

@@ -1,0 +1,21 @@
+tmp/**
+!tmp/*.example.json
+!tmp/*.md
+*.bak
+
+# Build outputs
+bin/
+obj/
+artifacts/
+*.zip
+*.pdb
+*.deps.json
+
+# Local runtime/log/debug outputs
+*.log
+*.latest.log
+image_output/
+
+# OS/editor caches
+.DS_Store
+Thumbs.db

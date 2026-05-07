@@ -1,0 +1,22 @@
+﻿<svg width="1200" height="800" viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">SubZ Logo Concept 1</title>
+  <desc id="desc">Geometric subtitle brackets with orange accent and SubZ wordmark.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#F7FAFC"/>
+      <stop offset="100%" stop-color="#EEF3F8"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="800" fill="url(#bg)"/>
+  <g transform="translate(180 220)">
+    <rect x="0" y="0" width="360" height="360" rx="72" fill="#0B1526"/>
+    <path d="M82 112 L146 112 L110 180 L146 248 L82 248" fill="none" stroke="#FF6A00" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M278 112 L214 112 L250 180 L214 248 L278 248" fill="none" stroke="#37D0FF" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M156 258 L204 102" stroke="#FFFFFF" stroke-width="18" stroke-linecap="round"/>
+  </g>
+  <g transform="translate(610 340)">
+    <text x="0" y="0" font-family="Segoe UI, Arial, sans-serif" font-size="132" font-weight="800" fill="#0B1526">Sub</text>
+    <text x="280" y="0" font-family="Segoe UI, Arial, sans-serif" font-size="132" font-weight="800" fill="#FF6A00">Z</text>
+    <text x="4" y="74" font-family="Segoe UI, Arial, sans-serif" font-size="34" fill="#4B5A72" letter-spacing="2">REAL-TIME SUBTITLE TRANSLATION</text>
+  </g>
+</svg>

@@ -1,0 +1,111 @@
+using System;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using SubZ.Plugin.Configuration;
+
+namespace SubZ.Plugin.Services;
+
+public sealed class TranslationExecutionEngine
+{
+    private readonly TranslationProfileResolver _profileResolver = new TranslationProfileResolver();
+    private readonly SubtitleTagProtector _protector = new SubtitleTagProtector();
+    private readonly ISubtitleTranslationClient _client = new OpenAICompatibleTranslationClient();
+
+    public async Task ProcessTargetAsync(string target, PluginOptions options, CancellationToken cancellationToken)
+    {
+        var files = VideoFileResolver.ResolveVideoFiles(target).ToList();
+        if (files.Count == 0)
+        {
+            throw new InvalidOperationException($"No video files found for target: {target}");
+        }
+
+        foreach (var videoFile in files)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await ProcessVideoAsync(videoFile, options, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async Task ProcessVideoAsync(string videoFile, PluginOptions options, CancellationToken cancellationToken)
+    {
+        var targetCode = options.GetTargetLanguageCode();
+        var debugEnabled = options.EnableDebugLog;
+        InMemoryTranslationJobDispatcher.AppendRuntimeLog("Info", $"Start video: {videoFile}");
+
+        if (VideoFileResolver.HasTargetSubtitle(videoFile, targetCode))
+        {
+            InMemoryTranslationJobDispatcher.AppendRuntimeLog("Info", $"Skip existing target subtitle: {videoFile} -> {targetCode}");
+            return;
+        }
+
+        var source = SubtitleSourceResolver.Resolve(videoFile, options, debugEnabled);
+        if (source.IsEmbedded)
+        {
+            InMemoryTranslationJobDispatcher.AppendRuntimeLog("Info", $"Using embedded subtitle: {videoFile}");
+        }
+        else if (!string.IsNullOrWhiteSpace(source.SourceSubtitlePath))
+        {
+            InMemoryTranslationJobDispatcher.AppendRuntimeLog("Info", $"Using external subtitle: {source.SourceSubtitlePath}");
+        }
+
+        try
+        {
+            var sourceSubtitle = source.SourceSubtitlePath;
+            if (string.IsNullOrWhiteSpace(sourceSubtitle) || !File.Exists(sourceSubtitle))
+            {
+                InMemoryTranslationJobDispatcher.AppendRuntimeLog("Error", $"No subtitle source found: {videoFile}");
+                throw new InvalidOperationException($"No usable subtitle source found for: {videoFile}");
+            }
+
+            var validSourceSubtitle = sourceSubtitle!;
+            var cues = SubtitleIO.ReadFromFile(validSourceSubtitle);
+            if (cues.Count == 0)
+            {
+                InMemoryTranslationJobDispatcher.AppendRuntimeLog("Error", $"Subtitle has no cues: {validSourceSubtitle}");
+                throw new InvalidOperationException($"Subtitle source has no cues: {validSourceSubtitle}");
+            }
+            InMemoryTranslationJobDispatcher.AppendRuntimeLog("Info", $"Loaded cues: {cues.Count} | Source: {validSourceSubtitle}");
+
+            var profile = _profileResolver.ResolveActiveProfile(options);
+            InMemoryTranslationJobDispatcher.AppendRuntimeLog("Info", $"Translating with provider={profile.Provider}, model={profile.Model}");
+            var translator = new BatchSelfHealingTranslator(_client, _protector, _profileResolver);
+            var rawLines = cues.Select(static c => c.Text).ToList();
+
+            var translated = await translator.TranslateAsync(rawLines, options, cancellationToken, cues).ConfigureAwait(false);
+            var bilingualCues = BilingualSubtitleComposer.BuildBilingualCues(cues, translated.OutputLines);
+
+            var outputPath = BilingualSubtitleComposer.BuildOutputPath(videoFile, targetCode, options.OutputFormat);
+            if (string.Equals(options.OutputFormat, "srt", StringComparison.OrdinalIgnoreCase))
+            {
+                SubtitleIO.WriteSrtBilingual(outputPath, bilingualCues);
+            }
+            else
+            {
+                SubtitleIO.WriteAssBilingual(
+                    outputPath,
+                    bilingualCues,
+                    options.AssFontName,
+                    options.AssFontSize,
+                    options.AssPrimaryColor);
+            }
+            InMemoryTranslationJobDispatcher.AppendRuntimeLog("Info", $"Output written: {outputPath}");
+
+            Plugin.LogInfo(
+                "SubZ translation usage | File={0} | PromptTokens={1} | CompletionTokens={2} | TotalTokens={3} | CueCount={4}",
+                videoFile,
+                translated.PromptTokens,
+                translated.CompletionTokens,
+                translated.TotalTokens,
+                cues.Count);
+            InMemoryTranslationJobDispatcher.AppendRuntimeLog(
+                "Info",
+                $"Token usage | Prompt={translated.PromptTokens}, Completion={translated.CompletionTokens}, Total={translated.TotalTokens}, Cues={cues.Count}");
+        }
+        finally
+        {
+            SubtitleSourceResolver.CleanupTemp(source);
+        }
+    }
+}

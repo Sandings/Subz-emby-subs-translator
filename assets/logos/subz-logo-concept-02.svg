@@ -1,0 +1,16 @@
+﻿<svg width="1200" height="800" viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">SubZ Logo Concept 2</title>
+  <desc id="desc">Speech bubble and subtitle lines with emerald focus.</desc>
+  <rect width="1200" height="800" fill="#F5F7FA"/>
+  <g transform="translate(130 190)">
+    <path d="M0 130c0-72 58-130 130-130h300c72 0 130 58 130 130v120c0 72-58 130-130 130H214l-112 98 18-98H130C58 380 0 322 0 250V130z" fill="#0F172A"/>
+    <rect x="120" y="118" width="320" height="26" rx="13" fill="#19C37D"/>
+    <rect x="120" y="176" width="260" height="26" rx="13" fill="#4AD9A8"/>
+    <rect x="120" y="234" width="188" height="26" rx="13" fill="#8BE8C9"/>
+    <text x="454" y="334" font-family="Segoe UI, Arial, sans-serif" font-size="168" font-weight="900" fill="#19C37D">Z</text>
+  </g>
+  <g transform="translate(720 330)">
+    <text x="0" y="0" font-family="Trebuchet MS, Segoe UI, Arial, sans-serif" font-size="124" font-weight="700" fill="#0F172A">Sub</text>
+    <text x="0" y="70" font-family="Trebuchet MS, Segoe UI, Arial, sans-serif" font-size="36" fill="#3F4E63">Bilingual. Crisp. Fast.</text>
+  </g>
+</svg>
