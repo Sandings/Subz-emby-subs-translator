@@ -2,7 +2,7 @@
 
 [English](#english) | [中文](#中文)
 
-## English
+<a id="english"></a>
 
 SubZ is an Emby server plugin for **library-ingest/manual batch subtitle translation and bilingual subtitle generation** via LLM APIs.
 
