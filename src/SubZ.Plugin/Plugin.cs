@@ -107,6 +107,7 @@ public sealed class Plugin : BasePluginSimpleUI<PluginOptions>, IHasThumbImage
         {
             options.PreferredSourceLanguage = "en";
         }
+        options.PreferredSourceLanguageOption = SourceLanguageMap.FromCode(options.PreferredSourceLanguage);
 
         if (string.IsNullOrWhiteSpace(options.FfmpegPath))
         {
@@ -155,7 +156,7 @@ public sealed class Plugin : BasePluginSimpleUI<PluginOptions>, IHasThumbImage
             profile.Temperature = 0.1;
         }
         profile.BatchSize = options.BatchSize <= 0 ? 120 : options.BatchSize;
-        options.PreferredSourceLanguage = string.IsNullOrWhiteSpace(options.PreferredSourceLanguage) ? "en" : options.PreferredSourceLanguage.Trim();
+        options.PreferredSourceLanguage = SourceLanguageMap.ToCode(options.PreferredSourceLanguageOption);
         options.FfmpegPath = string.IsNullOrWhiteSpace(options.FfmpegPath) ? "/bin/ffmpeg" : options.FfmpegPath.Trim();
         options.FfprobePath = string.IsNullOrWhiteSpace(options.FfprobePath) ? "/bin/ffprobe" : options.FfprobePath.Trim();
 

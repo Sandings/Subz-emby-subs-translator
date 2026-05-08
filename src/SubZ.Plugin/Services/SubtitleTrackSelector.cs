@@ -34,6 +34,9 @@ public sealed class SubtitleTrackSelector
     private static int Score(SubtitleTrackInfo track, PluginOptions options)
     {
         var score = 0;
+        var preferredSource = NormalizeLanguageCode(options.PreferredSourceLanguage, "en");
+        var preferredShort = preferredSource.Split('-')[0];
+        var trackLanguage = (track.Language ?? string.Empty).Trim();
 
         if (options.PreferTextSubtitleTrack)
         {
@@ -55,6 +58,24 @@ public sealed class SubtitleTrackSelector
             score += 40;
         }
 
+        if (!string.IsNullOrWhiteSpace(trackLanguage))
+        {
+            if (string.Equals(trackLanguage, preferredSource, StringComparison.OrdinalIgnoreCase))
+            {
+                score += 140;
+            }
+            else if (!string.IsNullOrWhiteSpace(preferredShort) &&
+                     string.Equals(trackLanguage, preferredShort, StringComparison.OrdinalIgnoreCase))
+            {
+                score += 100;
+            }
+            else if (!string.IsNullOrWhiteSpace(preferredShort) &&
+                     trackLanguage.StartsWith(preferredShort + "-", StringComparison.OrdinalIgnoreCase))
+            {
+                score += 80;
+            }
+        }
+
         if (string.Equals(track.Language, options.GetTargetLanguageCode(), StringComparison.OrdinalIgnoreCase))
         {
             // Lightly demote already-target-language tracks for translation scenarios.
@@ -73,5 +94,11 @@ public sealed class SubtitleTrackSelector
         }
 
         return score;
+    }
+
+    private static string NormalizeLanguageCode(string? configured, string fallback)
+    {
+        var raw = (configured ?? string.Empty).Trim();
+        return string.IsNullOrWhiteSpace(raw) ? fallback : raw;
     }
 }

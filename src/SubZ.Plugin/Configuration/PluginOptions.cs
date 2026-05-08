@@ -70,7 +70,10 @@ public sealed class PluginOptions : EditableOptionsBase
     public int BatchSize { get; set; } = 120;
 
     [DisplayName("源语言偏好 / Preferred Source Language")]
-    [Description("外挂字幕优先匹配的源语言代码（如 en、ja、fr）。 / Preferred source subtitle language code for external subtitle selection.")]
+    [Description("字幕源语言偏好，用于外挂字幕匹配和内嵌字幕轨优先选择。 / Preferred source subtitle language for external and embedded track selection.")]
+    public SourceLanguageOption PreferredSourceLanguageOption { get; set; } = SourceLanguageOption.En;
+
+    [Browsable(false)]
     public string PreferredSourceLanguage { get; set; } = "en";
 
     [DisplayName("FFmpeg 路径 / FFmpeg Path")]

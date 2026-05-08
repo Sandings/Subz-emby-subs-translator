@@ -11,6 +11,9 @@ namespace SubZ.Plugin.Services;
 public static class SubtitleIO
 {
     private static readonly Regex SrtTimeRegex = new Regex(@"^(\d{2}:\d{2}:\d{2},\d{3})\s+-->\s+(\d{2}:\d{2}:\d{2},\d{3})$", RegexOptions.Compiled);
+    private static readonly Regex FontTagRegex = new Regex(@"</?\s*font\b[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex BrTagRegex = new Regex(@"<\s*br\s*/?\s*>", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex GenericHtmlTagRegex = new Regex(@"</?\s*[a-zA-Z][^>]*>", RegexOptions.Compiled);
 
     public static List<SubtitleCue> ReadFromFile(string path)
     {
@@ -53,13 +56,35 @@ public static class SubtitleIO
         foreach (var cue in cues)
         {
             idx++;
-            var text = (cue.Text ?? string.Empty)
+            var text = NormalizeForAss(cue.Text ?? string.Empty)
                 .Replace("\r", string.Empty)
                 .Replace("\n", "\\N");
             sb.AppendLine($"Dialogue: 0,{ToAssTime(cue.Start)},{ToAssTime(cue.End)},Default,,0000,0000,0000,,{text}");
         }
 
         File.WriteAllText(outputPath, sb.ToString(), new UTF8Encoding(false));
+    }
+
+    private static string NormalizeForAss(string text)
+    {
+        var output = text ?? string.Empty;
+        // Convert common HTML-style line breaks to actual line breaks first.
+        output = BrTagRegex.Replace(output, "\n");
+
+        // Keep basic emphasis when source uses HTML tags.
+        output = Regex.Replace(output, @"<\s*i\s*>", @"{\\i1}", RegexOptions.IgnoreCase);
+        output = Regex.Replace(output, @"<\s*/\s*i\s*>", @"{\\i0}", RegexOptions.IgnoreCase);
+        output = Regex.Replace(output, @"<\s*b\s*>", @"{\\b1}", RegexOptions.IgnoreCase);
+        output = Regex.Replace(output, @"<\s*/\s*b\s*>", @"{\\b0}", RegexOptions.IgnoreCase);
+        output = Regex.Replace(output, @"<\s*u\s*>", @"{\\u1}", RegexOptions.IgnoreCase);
+        output = Regex.Replace(output, @"<\s*/\s*u\s*>", @"{\\u0}", RegexOptions.IgnoreCase);
+
+        // Drop <font ...> wrappers because ASS style is controlled by Style section.
+        output = FontTagRegex.Replace(output, string.Empty);
+
+        // Remove any remaining HTML tags to avoid literal tag leakage in ASS output.
+        output = GenericHtmlTagRegex.Replace(output, string.Empty);
+        return output;
     }
 
     private static string NormalizeAssColor(string value)
