@@ -89,13 +89,9 @@ Notes:
 
 ## Install
 
-1. Use the packaged plugin DLL (`artifacts/plugin/SubZ.Plugin.dll`) or `SubZ.Plugin.dll`.
+1. Copy the `SubZ.Plugin.dll` to Emby plugins directory.
 
-2. Copy the DLL to Emby plugins directory.
-
-3. (Optional) Copy `subz-status.html` to your Emby config folder.
-
-4. Restart Emby server.
+2. Restart Emby server.
 
 ## Configuration
 
@@ -284,13 +280,9 @@ SubZ 当前会扫描并处理以下视频扩展名：
 
 ## 安装方式
 
-1. 直接使用已封装的插件 DLL（`artifacts/plugin/SubZ.Plugin.dll` 或 `SubZ.Plugin.dll`）。
+1. 将 `SubZ.Plugin.dll` 复制到 Emby `plugins` 目录。
 
-2. 将该 DLL 复制到 Emby `plugins` 目录。
-
-3. （可选）将 `subz-status.html` 复制到 Emby config 文件夹。
-
-4. 重启 Emby 服务。
+2. 重启 Emby 服务。
 
 ## 配置说明
 
