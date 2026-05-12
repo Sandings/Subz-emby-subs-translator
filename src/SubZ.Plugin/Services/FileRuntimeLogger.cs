@@ -9,6 +9,7 @@ namespace SubZ.Plugin.Services;
 
 public static class FileRuntimeLogger
 {
+    private const string PreferredLinuxLogDirectory = "/config/plugins/SubZ.Plugin/logs";
     private static readonly object SyncRoot = new object();
     private const string LogDirName = "logs";
     private const string LogBaseName = "subz-runtime";
@@ -65,12 +66,17 @@ public static class FileRuntimeLogger
 
     public static IReadOnlyList<string> ReadLastLines(int take)
     {
+        return ReadLastLines(take, newestFirst: false);
+    }
+
+    public static IReadOnlyList<string> ReadLastLines(int take, bool newestFirst)
+    {
         lock (SyncRoot)
         {
             EnsureConfigured();
 
             take = Math.Max(1, take);
-            var files = Directory.GetFiles(_logDirectory!, $"{LogBaseName}-*{LogExt}")
+            var files = GetReadableLogFiles()
                 .OrderByDescending(static f => f, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 
@@ -94,9 +100,44 @@ public static class FileRuntimeLogger
                 }
             }
 
-            return lines.Count <= take
-                ? lines
+            var result = lines.Count <= take
+                ? lines.ToArray()
                 : lines.Skip(lines.Count - take).ToArray();
+
+            return newestFirst
+                ? result.Reverse().ToArray()
+                : result;
+        }
+    }
+
+    public static IReadOnlyList<string> ReadAllTokenUsageLines()
+    {
+        lock (SyncRoot)
+        {
+            EnsureConfigured();
+
+            var lines = new List<string>();
+            var files = GetReadableLogFiles()
+                .OrderBy(static f => f, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            foreach (var file in files)
+            {
+                using (var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                using (var reader = new StreamReader(stream, Encoding.UTF8, true))
+                {
+                    while (!reader.EndOfStream)
+                    {
+                        var line = reader.ReadLine();
+                        if (line != null && line.IndexOf("Token usage |", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            lines.Add(line);
+                        }
+                    }
+                }
+            }
+
+            return lines;
         }
     }
 
@@ -109,6 +150,15 @@ public static class FileRuntimeLogger
         }
     }
 
+    public static IReadOnlyList<string> GetReadableLogDirectories()
+    {
+        lock (SyncRoot)
+        {
+            EnsureConfigured();
+            return GetCandidateLogDirectories().ToArray();
+        }
+    }
+
     private static void EnsureConfigured()
     {
         if (!string.IsNullOrWhiteSpace(_logDirectory))
@@ -117,6 +167,72 @@ public static class FileRuntimeLogger
         }
 
         Configure(AppContext.BaseDirectory, 10, 7);
+    }
+
+    private static IEnumerable<string> GetReadableLogFiles()
+    {
+        foreach (var dir in GetCandidateLogDirectories())
+        {
+            if (!Directory.Exists(dir))
+            {
+                continue;
+            }
+
+            foreach (var file in Directory.GetFiles(dir, $"{LogBaseName}-*{LogExt}"))
+            {
+                yield return file;
+            }
+        }
+    }
+
+    private static IEnumerable<string> GetCandidateLogDirectories()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var directory in GetCandidateLogDirectoriesCore())
+        {
+            if (string.IsNullOrWhiteSpace(directory))
+            {
+                continue;
+            }
+
+            var normalized = directory.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (normalized.Length == 0)
+            {
+                continue;
+            }
+
+            if (seen.Add(normalized))
+            {
+                yield return normalized;
+            }
+        }
+    }
+
+    private static IEnumerable<string> GetCandidateLogDirectoriesCore()
+    {
+        yield return PreferredLinuxLogDirectory;
+
+        if (!string.IsNullOrWhiteSpace(_logDirectory))
+        {
+            yield return _logDirectory!;
+        }
+
+        var baseDir = AppContext.BaseDirectory;
+        if (!string.IsNullOrWhiteSpace(baseDir))
+        {
+            yield return Path.Combine(baseDir, LogDirName);
+            yield return Path.Combine(baseDir, "plugins", "SubZ.Plugin", LogDirName);
+
+            var parent = Path.GetDirectoryName(baseDir);
+            if (!string.IsNullOrWhiteSpace(parent))
+            {
+                yield return Path.Combine(parent, "plugins", "SubZ.Plugin", LogDirName);
+            }
+        }
+
+        // Backward-compatible fallback for old deployments.
+        yield return "/config/plugins/configurations/SubZ/logs";
+        yield return "/mnt/user/DockerFile/emby/plugins/SubZ.Plugin/logs";
     }
 
     private static string GetCurrentLogPath(DateTimeOffset now)

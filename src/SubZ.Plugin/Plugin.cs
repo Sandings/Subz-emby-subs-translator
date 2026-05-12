@@ -1,19 +1,23 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Threading.Tasks;
 using MediaBrowser.Common;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Model.Drawing;
 using MediaBrowser.Model.Logging;
+using MediaBrowser.Model.Plugins;
 using SubZ.Plugin.Api;
 using SubZ.Plugin.Configuration;
 using SubZ.Plugin.Services;
 
 namespace SubZ.Plugin;
 
-public sealed class Plugin : BasePluginSimpleUI<PluginOptions>, IHasThumbImage
+public sealed class Plugin : BasePluginSimpleUI<PluginOptions>, IHasThumbImage, IHasWebPages
 {
+    private const string PreferredLinuxLogBaseDir = "/config/plugins/SubZ.Plugin";
     public static Plugin? Instance { get; private set; }
     private static ILogger? _logger;
 
@@ -24,6 +28,7 @@ public sealed class Plugin : BasePluginSimpleUI<PluginOptions>, IHasThumbImage
         TryInitLogger(applicationHost);
         var options = CurrentOptions;
         ConfigureRuntimeFileLogger(options);
+        InMemoryTranslationJobDispatcher.AppendRuntimeLog("Info", "SubZ plugin started.");
         ValidateMediaToolPaths(options);
     }
 
@@ -47,6 +52,43 @@ public sealed class Plugin : BasePluginSimpleUI<PluginOptions>, IHasThumbImage
         }
 
         return stream;
+    }
+
+    public IEnumerable<PluginPageInfo> GetPages()
+    {
+        var ns = GetType().Namespace;
+        return new[]
+        {
+            new PluginPageInfo
+            {
+                Name = "SubZStatusV3",
+                EmbeddedResourcePath = ns + ".UI.StatusDashboardV2.html",
+                DisplayName = "SubZ Status",
+                EnableInMainMenu = true,
+                MenuIcon = "subtitles"
+            },
+            new PluginPageInfo
+            {
+                Name = "SubZStatus",
+                EmbeddedResourcePath = ns + ".UI.StatusDashboardV2.html"
+            },
+            new PluginPageInfo
+            {
+                Name = "SubZStatusJsV2",
+                EmbeddedResourcePath = ns + ".UI.StatusDashboard.js"
+            },
+            new PluginPageInfo
+            {
+                Name = "SubZStatusJs",
+                EmbeddedResourcePath = ns + ".UI.StatusDashboard.js"
+            },
+            new PluginPageInfo
+            {
+                // Backward-compatible alias for browsers that cached the old page controller name.
+                Name = "StatusDashboardJs",
+                EmbeddedResourcePath = ns + ".UI.StatusDashboard.js"
+            }
+        };
     }
 
     public static void LogInfo(string message, params object[] args)
@@ -187,13 +229,8 @@ public sealed class Plugin : BasePluginSimpleUI<PluginOptions>, IHasThumbImage
                 TargetFilePath = targetFile.Length > 0 ? targetFile : null
             };
 
-            var response = RunManualTranslationNow(request);
             options.ManualRunNow = false;
-
-            if (!response.Accepted)
-            {
-                throw new InvalidOperationException(response.Message);
-            }
+            QueueManualTranslationFromSave(request);
         }
 
         return base.OnOptionsSaving(options);
@@ -216,13 +253,16 @@ public sealed class Plugin : BasePluginSimpleUI<PluginOptions>, IHasThumbImage
     {
         try
         {
-            var baseDir = DataFolderPath;
-            if (string.IsNullOrWhiteSpace(baseDir))
+            var baseDir = PreferredLinuxLogBaseDir;
+            if (!TryPrepareDirectory(baseDir))
             {
-                baseDir = Path.Combine(AppContext.BaseDirectory, "subz");
+                baseDir = DataFolderPath;
+                if (string.IsNullOrWhiteSpace(baseDir) || !TryPrepareDirectory(baseDir))
+                {
+                    baseDir = Path.Combine(AppContext.BaseDirectory, "subz");
+                    Directory.CreateDirectory(baseDir);
+                }
             }
-
-            Directory.CreateDirectory(baseDir);
             FileRuntimeLogger.Configure(baseDir, options.LogFileMaxSizeMb, options.LogRetentionDays);
         }
         catch (Exception ex)
@@ -231,10 +271,47 @@ public sealed class Plugin : BasePluginSimpleUI<PluginOptions>, IHasThumbImage
         }
     }
 
-    private static ManualExecutionResponse RunManualTranslationNow(RunManualTranslation request)
+    private static bool TryPrepareDirectory(string? directory)
     {
-        var service = new ManualTranslationService();
-        return service.Post(request).ConfigureAwait(false).GetAwaiter().GetResult();
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            return false;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void QueueManualTranslationFromSave(RunManualTranslation request)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var service = new ManualTranslationService();
+                var response = await service.Post(request).ConfigureAwait(false);
+                if (!response.Accepted)
+                {
+                    InMemoryTranslationJobDispatcher.AppendRuntimeLog("Error", $"Manual run request rejected: {response.Message}");
+                    LogWarn("Manual run request rejected: {0}", response.Message);
+                    return;
+                }
+
+                InMemoryTranslationJobDispatcher.AppendRuntimeLog("Info", $"Manual run request accepted from configuration save: {response.PlannedTargets.Count} target(s).");
+            }
+            catch (Exception ex)
+            {
+                InMemoryTranslationJobDispatcher.AppendRuntimeLog("Error", $"Manual run request failed from configuration save: {ex.Message}");
+                LogErrorException("Manual run request failed from configuration save.", ex);
+            }
+        });
     }
 
     private static void ValidateMediaToolPaths(PluginOptions options)

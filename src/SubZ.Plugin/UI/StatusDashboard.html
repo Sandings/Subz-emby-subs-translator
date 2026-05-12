@@ -1,0 +1,76 @@
+<div id="statusDashboardPage"
+     data-role="page"
+     class="page type-interior pluginConfigurationPage page-windowScroll sz-page"
+     data-require="emby-button"
+     data-controller="__plugin/SubZStatusJs"
+     data-title="SubZ Status"
+     style="background:var(--theme-body-bg,var(--backgroundColor,#fff));min-height:100vh;z-index:10;">
+    <div class="content-primary" style="padding-top:1em;">
+            <div class="verticalSection" style="margin-bottom:1em;">
+                <div style="display:flex;flex-wrap:wrap;align-items:center;gap:.6em;margin-bottom:.8em;">
+                    <button id="refreshBtn" is="emby-button" class="raised" type="button">Refresh</button>
+                    <button id="pauseBtn" is="emby-button" class="raised" type="button" style="background:#f59e0b;color:#fff;">Pause</button>
+                    <button id="resumeBtn" is="emby-button" class="raised" type="button" style="background:#2563eb;color:#fff;">Resume</button>
+                    <button id="stopBtn" is="emby-button" class="raised" type="button" style="background:#dc2626;color:#fff;">Stop</button>
+                    <label style="display:inline-flex;align-items:center;gap:.4em;cursor:pointer;">
+                        <input id="autoRefresh" type="checkbox" checked />
+                        Auto Refresh
+                    </label>
+                    <span id="lastRefresh" style="opacity:.6;font-size:90%;margin-left:auto;"></span>
+                </div>
+            </div>
+
+            <div id="statusError" class="verticalSection" style="display:none;margin-bottom:1em;color:#dc2626;"></div>
+
+            <div class="verticalSection" style="margin-bottom:1.5em;">
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.8em;">
+                    <div class="card" style="background:var(--cardBackground);border:1px solid var(--cardBorderColor,#e5e7eb);border-radius:8px;padding:1em;">
+                        <div style="font-size:.85em;opacity:.7;margin-bottom:.4em;">Running</div>
+                        <div id="cRunning" style="font-size:1.8em;font-weight:700;">0</div>
+                    </div>
+                    <div class="card" style="background:var(--cardBackground);border:1px solid var(--cardBorderColor,#e5e7eb);border-radius:8px;padding:1em;">
+                        <div style="font-size:.85em;opacity:.7;margin-bottom:.4em;">Completed</div>
+                        <div id="cSucceeded" style="font-size:1.8em;font-weight:700;color:var(--green,#16a34a);">0</div>
+                    </div>
+                    <div class="card" style="background:var(--cardBackground);border:1px solid var(--cardBorderColor,#e5e7eb);border-radius:8px;padding:1em;">
+                        <div style="font-size:.85em;opacity:.7;margin-bottom:.4em;">Failed</div>
+                        <div id="cFailed" style="font-size:1.8em;font-weight:700;color:var(--red,#dc2626);">0</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="verticalSection" style="margin-bottom:1.5em;">
+                <h2 class="sectionTitle">Task Status</h2>
+                <div id="statusList" class="paperList" style="border:1px solid var(--cardBorderColor,#e5e7eb);border-radius:8px;overflow:hidden;">
+                    <div style="padding:1.5em;text-align:center;opacity:.5;">No tasks</div>
+                </div>
+            </div>
+
+            <div class="verticalSection" style="margin-bottom:1.5em;">
+                <h2 class="sectionTitle">Token Usage</h2>
+                <div style="display:flex;justify-content:flex-end;margin-bottom:.5em;">
+                    <label style="display:inline-flex;align-items:center;gap:.4em;font-size:.9em;">
+                        <span style="opacity:.75;">Range</span>
+                        <select id="tokenDays" style="min-width:120px;">
+                            <option value="0">All</option>
+                            <option value="7">Last 7 days</option>
+                            <option value="30">Last 30 days</option>
+                            <option value="90">Last 90 days</option>
+                        </select>
+                    </label>
+                </div>
+                <div id="tokenUsagePanel" class="paperList" style="border:1px solid var(--cardBorderColor,#e5e7eb);border-radius:8px;overflow:hidden;">
+                    <div class="sz-empty">No token usage records</div>
+                </div>
+            </div>
+
+            <div class="verticalSection">
+                <h2 class="sectionTitle">Recent Logs</h2>
+                <div id="logList" class="paperList" style="border:1px solid var(--cardBorderColor,#e5e7eb);border-radius:8px;overflow:hidden;">
+                    <div style="padding:1em;font-family:monospace;font-size:.85em;white-space:pre-wrap;overflow-x:hidden;max-height:36em;overflow-y:auto;">
+                        <div style="padding:.3em 0;opacity:.5;">No logs</div>
+                    </div>
+                </div>
+            </div>
+    </div>
+</div>

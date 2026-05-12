@@ -101,7 +101,7 @@ public sealed class TranslationExecutionEngine
                 cues.Count);
             InMemoryTranslationJobDispatcher.AppendRuntimeLog(
                 "Info",
-                $"Token usage | Prompt={translated.PromptTokens}, Completion={translated.CompletionTokens}, Total={translated.TotalTokens}, Cues={cues.Count}");
+                $"Token usage | File={videoFile} | Prompt={translated.PromptTokens}, Completion={translated.CompletionTokens}, Total={translated.TotalTokens}, Cues={cues.Count}");
         }
         finally
         {

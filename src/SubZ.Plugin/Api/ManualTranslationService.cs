@@ -27,10 +27,13 @@ public sealed class GetTranslationStatus : IReturn<object>
     public int LogLimit { get; set; } = 120;
     public string? LogSource { get; set; }
     public string? Cmd { get; set; }
+    public int TokenDays { get; set; } = 0;
+    public int TokenLimit { get; set; } = 200;
 }
 
 public sealed class ManualTranslationService : BaseApiService
 {
+    private const int DashboardLogLineMaxChars = 2000;
     private static readonly TranslationExecutionEngine Engine = new TranslationExecutionEngine();
     internal static readonly InMemoryTranslationJobDispatcher Dispatcher = new InMemoryTranslationJobDispatcher(HandleTargetAsync);
 
@@ -108,12 +111,12 @@ public sealed class ManualTranslationService : BaseApiService
 
         var logSource = NormalizeLogSource(request.LogSource);
         var logs = logSource == "file"
-            ? FileRuntimeLogger.ReadLastLines(request.LogLimit)
+            ? FileRuntimeLogger.ReadLastLines(request.LogLimit, newestFirst: true)
                 .Select(line => new
                 {
                     Timestamp = string.Empty,
                     Level = "File",
-                    Message = line
+                    Message = TruncateDashboardLogLine(line)
                 })
                 .ToArray()
             : Dispatcher.SnapshotRuntimeLogs(request.LogLimit)
@@ -121,9 +124,48 @@ public sealed class ManualTranslationService : BaseApiService
                 {
                     Timestamp = l.Timestamp.ToString("O"),
                     l.Level,
-                    l.Message
+                    Message = TruncateDashboardLogLine(l.Message)
                 })
                 .ToArray();
+
+        if (logSource == "file" && logs.Length == 0)
+        {
+            logs = new[]
+            {
+                new
+                {
+                    Timestamp = string.Empty,
+                    Level = "Info",
+                    Message = "No SubZ file logs found. Checked: " + string.Join("; ", FileRuntimeLogger.GetReadableLogDirectories())
+                }
+            };
+        }
+
+        var tokenEntries = logSource == "file"
+            ? TokenUsageLogParser.ParseEntries(FileRuntimeLogger.ReadAllTokenUsageLines(), newestFirst: true)
+            : TokenUsageLogParser.ParseEntries(
+                Dispatcher.SnapshotRuntimeLogs(2000)
+                    .Select(l => l.Timestamp.ToString("O") + " [" + l.Level + "] " + l.Message),
+                newestFirst: true);
+
+        var tokenEntriesBeforeFilter = tokenEntries.Count;
+        var normalizedTokenDays = request.TokenDays < 0 ? 0 : request.TokenDays;
+        var filteredTokenEntries = TokenUsageLogParser.FilterByDays(tokenEntries, normalizedTokenDays);
+        var tokenUsage = TokenUsageLogParser.Summarize(filteredTokenEntries);
+
+        var normalizedTokenLimit = request.TokenLimit <= 0 ? 200 : request.TokenLimit;
+        var tokenRecords = filteredTokenEntries
+            .Take(normalizedTokenLimit)
+            .Select(entry => new
+            {
+                entry.Timestamp,
+                entry.FileName,
+                entry.PromptTokens,
+                entry.CompletionTokens,
+                entry.TotalTokens,
+                entry.Cues
+            })
+            .ToArray();
 
         var control = Dispatcher.SnapshotControl();
 
@@ -137,7 +179,12 @@ public sealed class ManualTranslationService : BaseApiService
                 ServerNow = DateTimeOffset.UtcNow.ToString("O"),
                 Cmd = cmd,
                 LogLimit = request.LogLimit,
-                LogSource = logSource
+                LogSource = logSource,
+                TokenDays = normalizedTokenDays,
+                TokenLimit = normalizedTokenLimit,
+                LogDirectories = FileRuntimeLogger.GetReadableLogDirectories(),
+                TokenEntriesBeforeFilter = tokenEntriesBeforeFilter,
+                TokenEntriesAfterFilter = filteredTokenEntries.Count
             },
             Control = new
             {
@@ -145,6 +192,8 @@ public sealed class ManualTranslationService : BaseApiService
                 control.IsPaused,
                 control.QueuedCount
             },
+            TokenUsage = tokenUsage,
+            TokenRecords = tokenRecords,
             Log = new
             {
                 Source = logSource,
@@ -162,6 +211,19 @@ public sealed class ManualTranslationService : BaseApiService
     {
         var normalized = (source ?? string.Empty).Trim().ToLowerInvariant();
         return normalized == "file" ? "file" : "memory";
+    }
+
+    private static string TruncateDashboardLogLine(string? line)
+    {
+        var value = line ?? string.Empty;
+        if (value.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        return value.Length <= DashboardLogLineMaxChars
+            ? value
+            : value.Substring(0, DashboardLogLineMaxChars) + " ... [truncated in dashboard]";
     }
 
     private static ManualExecutionResponse HandleControlAction(string action)
