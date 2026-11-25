@@ -50,7 +50,7 @@ public sealed class BatchSelfHealingTranslationResult
 
 public sealed class BatchSelfHealingTranslator
 {
-    private static readonly Regex LineIdRegex = new Regex(@"\[\[SUBZ_TAG_LINE_(\d{4})\]\]", RegexOptions.Compiled);
+    private static readonly Regex LineIdRegex = new Regex(@"(?:\[\[|<{2,3})SUBZ_TAG_LINE_(\d{4,})\]\]", RegexOptions.Compiled);
 
     private readonly ISubtitleTranslationClient _client;
     private readonly SubtitleTagProtector _tagProtector;
@@ -227,7 +227,10 @@ public sealed class BatchSelfHealingTranslator
         for (var i = 0; i < batch.Count; i++)
         {
             var safeText = i < finalized.Count ? finalized[i] : (payload[i] ?? string.Empty);
-            work.RestoredLines.Add(_tagProtector.Restore(safeText, protectedBatch[i].TokenMap));
+            var restored = _tagProtector.Restore(safeText, protectedBatch[i].TokenMap);
+            if (restored.IndexOf("SUBZ_", StringComparison.OrdinalIgnoreCase) >= 0)
+                throw new InvalidOperationException("Unresolved subtitle markers; no subtitle was written.");
+            work.RestoredLines.Add(restored);
         }
 
         return work;
@@ -257,8 +260,7 @@ public sealed class BatchSelfHealingTranslator
 
         if (!options.EnableTailRetry)
         {
-            work.Warnings.Add("Translation gaps or unchanged source segments detected and retry is disabled. Source text fallback was used.");
-            return merged;
+            throw new InvalidOperationException($"Translation incomplete: {failed.Count} invalid lines in batch {batchIndex + 1}; retry is disabled. No subtitle was written.");
         }
 
         var attempts = Math.Max(0, options.TailRetryMaxAttempts);
@@ -272,7 +274,11 @@ public sealed class BatchSelfHealingTranslator
                 "Warn",
                 $"Healing failed segments: batch={batchIndex + 1}, attempt {attempt}/{attempts}, failed lines={failed.Count}, reasons={reasonSummary}");
 
-            var ranges = BuildFailedRanges(failed.Select(static f => f.Index).ToArray());
+            // Smaller repair batches prevent a malformed long answer from repeating wholesale.
+            var repairSize = Math.Max(1, 16 / attempt);
+            var ranges = BuildFailedRanges(failed.Select(static f => f.Index).ToArray())
+                .SelectMany(r => Enumerable.Range(0, (r.Count + repairSize - 1) / repairSize)
+                    .Select(n => (Start: r.Start + n * repairSize, Count: Math.Min(repairSize, r.Count - n * repairSize))));
             foreach (var range in ranges)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -337,9 +343,7 @@ public sealed class BatchSelfHealingTranslator
 
         if (failed.Count > 0)
         {
-            var warning = $"Translation gaps or unchanged source segments remain after retries ({failed.Count} lines). Source text fallback was used.";
-            work.Warnings.Add(warning);
-            InMemoryTranslationJobDispatcher.AppendRuntimeLog("Error", $"Translation gaps or unchanged source segments remain after retries: {failed.Count} lines");
+            throw new InvalidOperationException($"Translation incomplete after retries: {failed.Count} invalid lines in batch {batchIndex + 1}. No subtitle was written.");
         }
 
         return merged;
@@ -446,6 +450,17 @@ public sealed class BatchSelfHealingTranslator
             }
 
             var translatedText = translated[i];
+            var sourceTokens = Regex.Matches(protectedSourceBatch?[i] ?? sourceBatch[i], @"\[\[SUBZ_(?:TAG_\d+|LB)\]\]")
+                .Cast<Match>().Select(m => m.Value).Distinct().ToArray();
+            var withoutTokens = translatedText;
+            foreach (var token in sourceTokens) withoutTokens = withoutTokens.Replace(token, string.Empty);
+            if (withoutTokens.IndexOf("SUBZ_", StringComparison.OrdinalIgnoreCase) >= 0
+                || sourceTokens.Any(token => !translatedText.Contains(token)))
+            {
+                failed.Add(new FailedLineItem(i, "invalid_markers"));
+                continue;
+            }
+
             var sameAsSource = IsEffectivelySameText(sourceBatch[i], translatedText);
             var sameAsProtectedSource =
                 protectedSourceBatch != null
@@ -453,6 +468,11 @@ public sealed class BatchSelfHealingTranslator
                 && IsEffectivelySameText(protectedSourceBatch[i], translatedText);
 
             if (!sameAsSource && !sameAsProtectedSource)
+            {
+                continue;
+            }
+
+            if (IsStandaloneIdentifier(sourceBatch[i]))
             {
                 continue;
             }
@@ -472,6 +492,20 @@ public sealed class BatchSelfHealingTranslator
         }
 
         return failed;
+    }
+
+    private static bool IsStandaloneIdentifier(string text)
+    {
+        // Preserve only recognizable non-prose tokens. Do not exempt ordinary words
+        // or all-uppercase dialogue merely because a model copied them unchanged.
+        var plain = Regex.Replace(text ?? string.Empty, @"<[^>]+>|\{[^}]+\}", string.Empty).Trim();
+        if (Regex.IsMatch(plain, @"^(?:https?://|www\.)\S+$", RegexOptions.IgnoreCase)
+            || Regex.IsMatch(plain, @"^\d+(?:[.,:/-]\d+)*$")) return true;
+        if (!Regex.IsMatch(plain, @"^[A-Za-z0-9_]+$")) return false;
+        return plain.Contains("_")
+            || (Regex.IsMatch(plain, "[A-Za-z]") && Regex.IsMatch(plain, "[0-9]"))
+            || Regex.IsMatch(plain, "[a-z][A-Z]")
+            || Regex.IsMatch(plain, "^[A-Z]{2,}[a-z]+");
     }
 
     private static bool IsEffectivelySameText(string? left, string? right)
@@ -531,59 +565,47 @@ public sealed class BatchSelfHealingTranslator
         out int structuralMismatchCount)
     {
         var expected = fallbackInputs.Count;
-        var resolved = new string[expected];
-        var assigned = new bool[expected];
-        var carry = new Queue<string>();
-        structuralMismatchCount = 0;
+        var resolved = Enumerable.Repeat(string.Empty, expected).ToArray();
+        var seen = new bool[expected];
+        var duplicates = new bool[expected];
+        var raw = string.Join("\n", outputLines);
+        var matches = LineIdRegex.Matches(raw);
+        var invalidEnvelope = matches.Count == 0;
+        if (matches.Count > 0 && !string.IsNullOrWhiteSpace(raw.Substring(0, matches[0].Index).Replace("<<<SUBZ_SEP>>>", string.Empty)))
+            invalidEnvelope = true;
 
-        for (var i = 0; i < outputLines.Count; i++)
+        for (var i = 0; i < matches.Count; i++)
         {
-            var raw = outputLines[i] ?? string.Empty;
-            var matched = LineIdRegex.Match(raw);
-            var cleaned = LineIdRegex.Replace(raw, string.Empty).Trim();
-
-            if (matched.Success
-                && int.TryParse(matched.Groups[1].Value, out var lineIdx)
-                && lineIdx >= 0
-                && lineIdx < expected
-                && !assigned[lineIdx])
+            var match = matches[i];
+            if (!int.TryParse(match.Groups[1].Value, out var id) || id < 0 || id >= expected)
             {
-                resolved[lineIdx] = cleaned;
-                assigned[lineIdx] = true;
+                invalidEnvelope = true;
                 continue;
             }
-
-            if (matched.Success)
+            var end = i + 1 < matches.Count ? matches[i + 1].Index : raw.Length;
+            var text = raw.Substring(match.Index + match.Length, end - match.Index - match.Length).Trim();
+            // A separator may terminate this cue, but text after it without a new ID
+            // is ambiguous and must not be folded into the preceding translation.
+            var separator = text.IndexOf("<<<SUBZ_SEP>>>", StringComparison.Ordinal);
+            if (separator >= 0)
             {
-                structuralMismatchCount++;
+                var suffix = text.Substring(separator).Replace("<<<SUBZ_SEP>>>", string.Empty);
+                text = string.IsNullOrWhiteSpace(suffix) ? text.Substring(0, separator).Trim() : string.Empty;
             }
-
-            carry.Enqueue(cleaned);
+            if (seen[id]) duplicates[id] = true;
+            else resolved[id] = text;
+            seen[id] = true;
         }
 
+        structuralMismatchCount = 0;
         for (var i = 0; i < expected; i++)
         {
-            if (assigned[i])
+            if (invalidEnvelope || duplicates[i] || !seen[i] || string.IsNullOrWhiteSpace(resolved[i]))
             {
-                continue;
-            }
-
-            while (carry.Count > 0 && string.IsNullOrWhiteSpace(carry.Peek()))
-            {
-                carry.Dequeue();
-            }
-
-            if (carry.Count > 0)
-            {
-                resolved[i] = carry.Dequeue();
-            }
-            else
-            {
-                resolved[i] = fallbackInputs[i] ?? string.Empty;
+                resolved[i] = string.Empty;
                 structuralMismatchCount++;
             }
         }
-
         return resolved.ToList();
     }
 
@@ -626,14 +648,14 @@ public sealed class BatchSelfHealingTranslator
 
         while (list.Count < payload.Count)
         {
-            list.Add(payload[list.Count]);
+            list.Add(string.Empty);
         }
 
         for (var i = 0; i < list.Count; i++)
         {
             if (string.IsNullOrWhiteSpace(list[i]))
             {
-                list[i] = payload[i];
+                list[i] = string.Empty;
             }
         }
 

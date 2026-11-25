@@ -1,4 +1,4 @@
-﻿# SubZ
+# SubZ
 
 [English](#english) | [中文](#中文)
 
@@ -44,6 +44,8 @@ SubZ is an Emby server plugin for **library-ingest/manual batch subtitle transla
 - LLM translation pipeline
   - LLM `/chat/completions` translation
   - Batch translation + self-healing retry strategy
+  - Strict line-ID alignment with small repair batches for missing, duplicate, out-of-range or malformed markers
+  - Unresolved gaps or structural errors fail the task before writing that video's new subtitle; recognizable standalone URLs, numbers and player identifiers may remain unchanged
   - Automatic `thinking` capability detection
   - If supported, send `thinking=disabled` (non-thinking mode); if not supported, auto-fallback without `thinking`
 - Runtime task control
@@ -236,6 +238,8 @@ SubZ 是一个 Emby 服务端插件，通过LLM API实现自动入库/手动批�
 - LLM 翻译链路
   - 通过 LLM `/chat/completions` 进行翻译
   - 批量翻译 + 失败自愈重试
+  - 按行号严格对齐；缺失、重复、越界或损坏的标记进入小批次重试
+  - 重试后仍有漏译或结构错误则任务失败，不写出该影片的新字幕；可识别的独立网址、数字和玩家标识符允许保留原样
   - 自动检测 `thinking` 能力
   - 若支持则发送 `thinking=disabled`（non-thinking 模式）；若不支持则自动回退为不发送 `thinking`
 - 运行控制

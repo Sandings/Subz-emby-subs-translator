@@ -201,23 +201,9 @@ public sealed class OpenAICompatibleTranslationClient : ISubtitleTranslationClie
 
     private static List<string> SplitOutput(string output, string sep, int expectedCount, IReadOnlyList<string> fallbackInputs)
     {
-        var parts = (output ?? string.Empty)
-            .Split(new[] { sep }, StringSplitOptions.None);
-
-        var list = new List<string>(expectedCount);
-        for (var i = 0; i < expectedCount; i++)
-        {
-            if (i < parts.Length && !string.IsNullOrWhiteSpace(parts[i]))
-            {
-                list.Add(parts[i].Trim());
-            }
-            else
-            {
-                list.Add(fallbackInputs[i]);
-            }
-        }
-
-        return list;
+        // Preserve the full response. Alignment must inspect every ID, including duplicates
+        // and surplus output; padding with marked source lines would hide missing IDs.
+        return new List<string> { output ?? string.Empty };
     }
 
     private static async Task<string> SendAsync(

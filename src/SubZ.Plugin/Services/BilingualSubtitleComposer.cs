@@ -38,7 +38,7 @@ public static class BilingualSubtitleComposer
     private static string NormalizeSpaces(string input)
     {
         var s = (input ?? string.Empty).Replace("\r", "").Trim();
-        s = Regex.Replace(s, "\\n+", "\\n");
+        s = Regex.Replace(s, "\n+", "\n");
         return s;
     }
 

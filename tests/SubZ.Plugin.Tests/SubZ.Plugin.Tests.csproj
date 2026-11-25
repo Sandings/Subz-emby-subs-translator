@@ -41,6 +41,14 @@
     <Compile Include="..\..\src\SubZ.Plugin\Services\TranslationStatusLogParser.cs" Link="TranslationStatusLogParser.cs" />
     <Compile Include="..\..\src\SubZ.Plugin\Services\TranslationTargetResult.cs" Link="TranslationTargetResult.cs" />
     <Compile Include="..\..\src\SubZ.Plugin\Services\UiText.cs" Link="UiText.cs" />
+    <Compile Include="..\..\src\SubZ.Plugin\Services\BatchSelfHealingTranslator.cs" Link="BatchSelfHealingTranslator.cs" />
+    <Compile Include="..\..\src\SubZ.Plugin\Services\SubtitleTagProtector.cs" Link="SubtitleTagProtector.cs" />
+    <Compile Include="..\..\src\SubZ.Plugin\Services\TranslationProfileResolver.cs" Link="TranslationProfileResolver.cs" />
+    <Compile Include="..\..\src\SubZ.Plugin\Services\TranslationRetryPolicy.cs" Link="TranslationRetryPolicy.cs" />
+    <Compile Include="..\..\src\SubZ.Plugin\Services\TranslationServiceException.cs" Link="TranslationServiceException.cs" />
+    <Compile Include="..\..\src\SubZ.Plugin\Services\SubtitleCue.cs" Link="SubtitleCue.cs" />
+    <Compile Include="..\..\src\SubZ.Plugin\Services\OpenAICompatibleTranslationClient.cs" Link="OpenAICompatibleTranslationClient.cs" />
+    <Compile Include="..\..\src\SubZ.Plugin\Services\BilingualSubtitleComposer.cs" Link="BilingualSubtitleComposer.cs" />
   </ItemGroup>
 
 </Project>
